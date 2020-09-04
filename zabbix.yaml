@@ -1,0 +1,102 @@
+version: '3.5'
+services:
+
+ zabbix-server:
+  image: zabbix/zabbix-server-mysql:ubuntu-5.0-latest
+  ports:
+   - 10051:10051
+  volumes:
+   - /etc/localtime:/etc/localtime:ro
+   - ./zbx_env/usr/lib/zabbix/alertscripts:/usr/lib/zabbix/alertscripts:ro
+   - ./zbx_env/usr/lib/zabbix/externalscripts:/usr/lib/zabbix/externalscripts:ro
+   - ./zbx_env/var/lib/zabbix/export:/var/lib/zabbix/export:rw
+   - ./zbx_env/var/lib/zabbix/modules:/var/lib/zabbix/modules:ro
+   - ./zbx_env/var/lib/zabbix/enc:/var/lib/zabbix/enc:ro
+   - ./zbx_env/var/lib/zabbix/ssh_keys:/var/lib/zabbix/ssh_keys:ro
+   - ./zbx_env/var/lib/zabbix/mibs:/var/lib/zabbix/mibs:ro
+   - ./secrets:/run/secrets:ro
+   - snmptraps:/var/lib/zabbix/snmptraps:rw
+  ulimits:
+   nproc: 65535
+   nofile:
+    soft: 20000
+    hard: 40000
+  env_file:
+   - .env_db_mysql
+   - .env_srv
+  depends_on:
+   - mysql-server
+  networks:
+   - backend
+   - frontend
+  stop_grace_period: 30s
+  restart: always
+  sysctls:
+   - net.ipv4.ip_local_port_range=1024 65000
+   - net.ipv4.conf.all.accept_redirects=0
+   - net.ipv4.conf.all.secure_redirects=0
+   - net.ipv4.conf.all.send_redirects=0
+
+ zabbix-web-nginx-mysql:
+  image: zabbix/zabbix-web-nginx-mysql:ubuntu-5.0-latest
+  ports:
+   - "8081:8080"
+   #- "8443:8443"
+  volumes:
+   - /etc/localtime:/etc/localtime:ro
+   - ./zbx_env/etc/ssl/nginx:/etc/ssl/nginx:ro
+   - ./zbx_env/usr/share/zabbix/modules/:/usr/share/zabbix/modules/:ro
+   - ./secrets:/run/secrets:ro
+  env_file:
+   - .env_db_mysql
+   - .env_web
+  depends_on:
+   - mysql-server
+   - zabbix-server
+  healthcheck:
+   test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+   interval: 10s
+   timeout: 5s
+   retries: 3
+   start_period: 30s
+  networks:
+   - backend
+   - frontend
+  stop_grace_period: 10s
+  restart: always
+  sysctls:
+   - net.core.somaxconn=65535
+
+ mysql-server:
+  image: mariadb:10.5.5-focal
+  ports:
+   - 3306:3306
+  command:
+   - mysqld
+   - --character-set-server=UTF8
+   - --collation-server=utf8_bin
+   - --default-authentication-plugin=mysql_native_password
+#   - --require-secure-transport
+#   - --ssl-ca=/run/secrets/root-ca.pem
+#   - --ssl-cert=/run/secrets/server-cert.pem
+#   - --ssl-key=/run/secrets/server-key.pem
+  volumes:
+   - /etc/localtime:/etc/localtime:ro
+   - ./zbx_env/var/lib/mysql:/var/lib/mysql:rw
+   - ./secrets:/run/secrets:ro
+  env_file:
+   - .env_db_mysql
+  networks:
+   - backend
+  stop_grace_period: 1m
+  restart: always
+
+volumes:
+  snmptraps:
+
+networks:
+  frontend:
+    name: frontend
+  backend:
+    internal: true
+    name: backend
